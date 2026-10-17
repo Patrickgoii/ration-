@@ -50,6 +50,7 @@ input,select{width:100%;padding:8px 6px;border-radius:10px;border:1px solid var(
 .sheet b{display:block;margin-bottom:4px}
 .sheet p{margin:0 0 10px;color:var(--mute);font-size:13px}
 .sheet .mb{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px}
+.nav{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}.nav button{border:0;background:var(--bg);color:var(--text);font-size:20px;border-radius:10px;padding:2px 14px}
 </style>
 </head>
 <body>
@@ -69,12 +70,15 @@ input,select{width:100%;padding:8px 6px;border-radius:10px;border:1px solid var(
   <div class="macros" id="macros"></div>
 </div>
 
-<div class="card"><h2>Рацион</h2><div id="ration"></div></div>
+<div class="card"><div class="nav"><button id="prev">‹</button><h2 id="day" style="margin:0"></h2><button id="next">›</button></div><div id="ration"></div></div>
 
 <div class="card">
   <h2>Продукты</h2>
   <input id="q" placeholder="Поиск продукта">
   <div class="grid" id="products"></div>
+  <button class="btn" id="webBtn" style="width:100%;margin-top:8px">Искать в онлайн-базе (Россия)</button>
+  <div class="empty" id="webMsg"></div>
+  <div class="grid" id="web"></div>
   <h2 style="margin-top:16px">Свой продукт (на 100 г)</h2>
   <div class="add">
     <input id="n" placeholder="Название">
@@ -115,6 +119,11 @@ const BASE = [
 let S;
 try { S = JSON.parse(localStorage.getItem('ration-v2')); } catch (e) {}
 S = S || {sex:'m', age:25, h:175, w:75, def:500, custom:[], ration:[]};
+const today = () => { const d = new Date(); return new Date(d - d.getTimezoneOffset()*60000).toISOString().slice(0,10); };
+if (!S.days) S.days = {};
+if (Array.isArray(S.ration)) { if (!S.days[today()]) S.days[today()] = S.ration; delete S.ration; }
+S.d = today();
+Object.defineProperty(S, 'ration', {get(){ return S.days[S.d] || (S.days[S.d] = []); }, set(v){ S.days[S.d] = v; }});
 const save = () => { try { localStorage.setItem('ration-v2', JSON.stringify(S)); } catch (e) {} };
 const all = () => BASE.concat(S.custom);
 
@@ -125,6 +134,7 @@ function target(){
 const calc = x => ({k:x.k*x.g/100, p:x.p*x.g/100, f:x.f*x.g/100, c:x.c*x.g/100});
 
 function render(){
+  $('day').textContent = S.d === today() ? 'Сегодня' : S.d.split('-').reverse().slice(0,2).join('.');
   const t = target(), tot = {k:0,p:0,f:0,c:0};
   S.ration.forEach(x => { const v = calc(x); for (const q in tot) tot[q] += v[q]; });
   const left = Math.round(t - tot.k), pct = Math.min(100, tot.k / t * 100);
@@ -197,6 +207,37 @@ $('addBtn').onclick = () => {
   ['n','k','pp','ff','cc'].forEach(id => $(id).value = '');
   save(); render();
 };
+
+const shift = n => { const d = new Date(S.d + 'T12:00:00'); d.setDate(d.getDate() + n); S.d = new Date(d - d.getTimezoneOffset()*60000).toISOString().slice(0,10); render(); };
+$('prev').onclick = () => shift(-1);
+$('next').onclick = () => shift(1);
+
+let web = [];
+async function searchWeb(){
+  const q = $('q').value.trim();
+  if (q.length < 2) { $('webMsg').textContent = 'Введи название в поиске выше.'; return; }
+  $('webMsg').textContent = 'Ищу…'; $('web').innerHTML = '';
+  try {
+    const u = 'https://world.openfoodfacts.org/cgi/search.pl?search_simple=1&action=process&json=1&page_size=30&fields=product_name,brands,nutriments&tagtype_0=countries&tag_contains_0=contains&tag_0=russia&search_terms=' + encodeURIComponent(q);
+    const j = await (await fetch(u)).json();
+    web = (j.products || []).map(p => { const n = p.nutriments || {}; return {
+      e:'🛒', n:((p.product_name || '') + (p.brands ? ' (' + p.brands.split(',')[0] + ')' : '')).trim(),
+      k:r1(n['energy-kcal_100g']), p:r1(n.proteins_100g || 0), f:r1(n.fat_100g || 0), c:r1(n.carbohydrates_100g || 0), g:100 }; })
+      .filter(x => x.n && typeof x.k === 'number' && x.k >= 0);
+    $('webMsg').textContent = web.length ? '' : 'Не нашлось. Добавь продукт вручную ниже, он сохранится.';
+    $('web').innerHTML = web.map((p,i) => '<div class="item" data-w="' + i + '"><em>🛒</em><span>' + esc(p.n) + '</span><small>' + Math.round(p.k) + ' ккал/100 г</small></div>').join('');
+  } catch (e) { $('webMsg').textContent = 'Нет связи с базой. Попробуй позже.'; }
+}
+$('webBtn').onclick = searchWeb;
+$('q').addEventListener('keydown', e => { if (e.key === 'Enter') searchWeb(); });
+$('web').addEventListener('click', e => {
+  const it = e.target.closest('.item'); if (!it) return;
+  const p = web[it.dataset.w];
+  ask('🛒 ' + p.n, 'Сколько грамм?', 100, g => {
+    if (!S.custom.some(x => x.n === p.n)) S.custom.push(Object.assign({}, p));
+    S.ration.push(Object.assign({}, p, {g}));
+  });
+});
 
 $('reset').onclick = () => { S.ration = []; save(); render(); };
 render();
