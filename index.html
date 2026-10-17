@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Рацион</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<style>
+:root{
+  --bg:#f1f6ef;--card:#fff;--text:#1b2b1f;--mute:#6b7d6f;--line:#dbe6d8;
+  --ok:#2e9b4f;--warn:#e0902b;--bad:#d64545;--btn:#2e9b4f;--btn-t:#fff;
+}
+@media (prefers-color-scheme:dark){
+  :root{--bg:#121a14;--card:#1b261e;--text:#e8f1ea;--mute:#8da392;--line:#2b3a2f}
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+body{margin:0;background:var(--bg);color:var(--text);font:15px/1.35 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  padding:12px 12px calc(24px + env(safe-area-inset-bottom,0px))}
+h2{margin:0 0 8px;font-size:16px}
+.card{background:var(--card);border-radius:16px;padding:12px;margin-bottom:12px;border:1px solid var(--line)}
+.params{display:grid;grid-template-columns:repeat(5,1fr);gap:6px}
+.params label{display:flex;flex-direction:column;font-size:11px;color:var(--mute);gap:3px}
+.params input,.params select,.add input{width:100%;padding:8px 6px;border-radius:10px;border:1px solid var(--line);
+  background:var(--bg);color:var(--text);font:inherit;font-size:15px}
+.hero{display:flex;align-items:baseline;justify-content:space-between;margin-bottom:8px}
+.hero b{font-size:40px;letter-spacing:-1px;line-height:1}
+.hero span{color:var(--mute)}
+.bar{height:10px;border-radius:6px;background:var(--line);overflow:hidden}
+.bar i{display:block;height:100%;width:0;background:var(--ok);transition:width .25s,background .25s}
+.sub{margin-top:6px;color:var(--mute);font-size:12px}
+.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.item{border:1px solid var(--line);border-radius:12px;padding:8px 4px;text-align:center;background:var(--bg);
+  color:var(--text);font:inherit;cursor:pointer}
+.item:active{transform:scale(.96)}
+.item em{display:block;font-size:26px;font-style:normal}
+.item span{display:block;font-size:12px;margin-top:2px}
+.item small{color:var(--mute);font-size:11px}
+.row{display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--line)}
+.row:last-child{border:0}
+.row em{font-size:24px;font-style:normal}
+.row div{flex:1}
+.row small{color:var(--mute)}
+.x{border:0;background:none;color:var(--mute);font-size:22px;padding:4px 8px}
+.empty{color:var(--mute);padding:6px 0}
+.add{display:grid;grid-template-columns:1fr 80px 70px;gap:6px;margin-top:10px}
+.add button,.reset{border:0;border-radius:10px;background:var(--btn);color:var(--btn-t);font:inherit;padding:8px;cursor:pointer}
+.reset{background:none;color:var(--mute);width:100%;padding:10px}
+</style>
+</head>
+<body>
+
+<div class="card">
+  <div class="params">
+    <label>Пол<select id="sex"><option value="m">М</option><option value="f">Ж</option></select></label>
+    <label>Возраст<input id="age" type="number" inputmode="numeric"></label>
+    <label>Рост, см<input id="h" type="number" inputmode="numeric"></label>
+    <label>Вес, кг<input id="w" type="number" inputmode="decimal"></label>
+    <label>Дефицит<input id="def" type="number" inputmode="numeric"></label>
+  </div>
+</div>
+
+<div class="card">
+  <div class="hero"><b id="left">0</b><span>ккал осталось</span></div>
+  <div class="bar"><i id="fill"></i></div>
+  <div class="sub" id="sub"></div>
+</div>
+
+<div class="card">
+  <h2>Рацион</h2>
+  <div id="ration"></div>
+</div>
+
+<div class="card">
+  <h2>Продукты</h2>
+  <div class="grid" id="products"></div>
+  <div class="add">
+    <input id="n" placeholder="Свой продукт">
+    <input id="k" type="number" inputmode="numeric" placeholder="ккал">
+    <button id="addBtn">Добавить</button>
+  </div>
+</div>
+
+<button class="reset" id="reset">Очистить рацион</button>
+
+<script>
+const tg = window.Telegram && Telegram.WebApp;
+if (tg) { tg.ready(); tg.expand(); }
+
+const $ = id => document.getElementById(id);
+const DEFAULT_PRODUCTS = [
+  {e:'🥔',n:'Чипсы Lay’s',k:150,u:'30 г'},
+  {e:'🍗',n:'Куриное филе',k:165,u:'100 г'},
+  {e:'🥒',n:'Огурцы',k:15,u:'100 г'},
+  {e:'🍅',n:'Помидоры',k:20,u:'100 г'},
+  {e:'🥛',n:'Греческий йогурт',k:60,u:'100 г'},
+  {e:'🧈',n:'Масло',k:90,u:'10 г'},
+  {e:'🧀',n:'Творог 5%',k:145,u:'100 г'},
+  {e:'🍌',n:'Банан',k:90,u:'1 шт'},
+  {e:'🍚',n:'Рис варёный',k:130,u:'100 г'},
+  {e:'🥚',n:'Яйцо',k:75,u:'1 шт'},
+  {e:'🍞',n:'Хлеб',k:80,u:'1 кусок'},
+  {e:'🍎',n:'Яблоко',k:80,u:'1 шт'}
+];
+
+let S;
+try { S = JSON.parse(localStorage.getItem('ration-v1')); } catch (e) {}
+S = S || {sex:'m', age:25, h:175, w:75, def:500, products:DEFAULT_PRODUCTS, ration:[]};
+
+function save(){ try { localStorage.setItem('ration-v1', JSON.stringify(S)); } catch (e) {} }
+
+function target(){
+  const {sex,age,h,w,def} = S;
+  const bmr = 10*w + 6.25*h - 5*age + (sex === 'm' ? 5 : -161);
+  return Math.max(1200, Math.round(bmr*1.4 - def));
+}
+
+function render(){
+  const t = target(), eaten = S.ration.reduce((a,x) => a + x.k, 0), left = t - eaten;
+  const pct = Math.min(100, eaten / t * 100);
+  $('left').textContent = left;
+  $('left').style.color = left < 0 ? 'var(--bad)' : '';
+  $('fill').style.width = pct + '%';
+  $('fill').style.background = pct < 70 ? 'var(--ok)' : pct <= 100 ? 'var(--warn)' : 'var(--bad)';
+  $('sub').textContent = 'Цель на день: ' + t + ' ккал · съедено ' + eaten;
+
+  $('products').innerHTML = S.products.map((p,i) =>
+    '<button class="item" data-i="' + i + '"><em>' + p.e + '</em><span>' + esc(p.n) +
+    '</span><small>' + p.k + ' ккал · ' + esc(p.u) + '</small></button>').join('');
+
+  $('ration').innerHTML = S.ration.length
+    ? S.ration.map((x,i) => '<div class="row"><em>' + x.e + '</em><div>' + esc(x.n) +
+        '<br><small>' + x.k + ' ккал · ' + esc(x.u) + '</small></div><button class="x" data-r="' + i + '">×</button></div>').join('')
+    : '<div class="empty">Нажми на продукт ниже, чтобы добавить его.</div>';
+}
+
+function esc(s){ return String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+
+['sex','age','h','w','def'].forEach(id => {
+  $(id).value = S[id];
+  $(id).addEventListener('input', () => {
+    S[id] = id === 'sex' ? $(id).value : (parseFloat($(id).value) || 0);
+    save(); render();
+  });
+});
+
+$('products').addEventListener('click', e => {
+  const b = e.target.closest('.item'); if (!b) return;
+  S.ration.push(S.products[b.dataset.i]);
+  if (tg && tg.HapticFeedback) tg.HapticFeedback.impactOccurred('light');
+  save(); render();
+});
+
+$('ration').addEventListener('click', e => {
+  const b = e.target.closest('.x'); if (!b) return;
+  S.ration.splice(b.dataset.r, 1); save(); render();
+});
+
+$('addBtn').addEventListener('click', () => {
+  const n = $('n').value.trim(), k = parseInt($('k').value, 10);
+  if (!n || !(k >= 0)) return;
+  S.products.push({e:'🍽️', n, k, u:'порция'});
+  $('n').value = ''; $('k').value = '';
+  save(); render();
+});
+
+$('reset').addEventListener('click', () => { S.ration = []; save(); render(); });
+
+render();
+</script>
+</body>
+</html>
